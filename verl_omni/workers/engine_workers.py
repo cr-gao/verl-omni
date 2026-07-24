@@ -585,6 +585,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 self.config.ref.ppo_micro_batch_size_per_gpu = self.config.ref.pop(
                     "log_prob_micro_batch_size_per_gpu", None
                 )
+                # Not a dataclass field; pop before omega_conf_to_dataclass.
+                ref_model_path = self.config.ref.pop("model_path", None)
                 if not is_diffusion:
                     self.config.ref.ppo_micro_batch_size = self.config.ref.pop("log_prob_micro_batch_size", None)
                     self.config.ref.use_dynamic_bsz = self.config.ref.pop("log_prob_use_dynamic_bsz", False)
@@ -596,6 +598,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             # The ref model does not need to enable MTP; force it to false.
             ref_config.model_config = deepcopy(model_config)
             ref_config.model_config.mtp = MtpConfig(enable=False)
+
+            # Teacher override: load a separate (merged, adapter-free) checkpoint.
+            if ref_model_path is not None:
+                ref_config.model_config.path = ref_model_path
+                ref_config.model_config.local_path = None
+                ref_config.model_config.lora_rank = 0
+                ref_config.model_config.lora_adapter_path = None
+                ref_config.model_config.lora = {}
 
             # construct TrainingWorkerConfig
             ref_training_config = TrainingWorkerConfig(
