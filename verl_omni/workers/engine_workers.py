@@ -18,6 +18,7 @@ import os
 import time
 from contextlib import nullcontext
 from copy import deepcopy
+from dataclasses import replace
 from functools import partial
 from itertools import chain
 from typing import Optional
@@ -596,16 +597,16 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             ref_config: ActorConfig | DiffusionActorConfig = omega_conf_to_dataclass(self.config.ref)
 
             # The ref model does not need to enable MTP; force it to false.
-            ref_config.model_config = deepcopy(model_config)
-            ref_config.model_config.mtp = MtpConfig(enable=False)
-
-            # Teacher override: load a separate (merged, adapter-free) checkpoint.
-            if ref_model_path is not None:
-                ref_config.model_config.path = ref_model_path
-                ref_config.model_config.local_path = None
-                ref_config.model_config.lora_rank = 0
-                ref_config.model_config.lora_adapter_path = None
-                ref_config.model_config.lora = {}
+            if is_diffusion:
+                # DiffusionModelConfig freezes these fields; rebuild instead of mutating.
+                overrides: dict = {"mtp": MtpConfig(enable=False)}
+                # Teacher override: load a separate (merged, adapter-free) checkpoint.
+                if ref_model_path is not None:
+                    overrides.update(path=ref_model_path, local_path=None, lora_rank=0, lora_adapter_path=None, lora={})
+                ref_config.model_config = replace(deepcopy(model_config), **overrides)
+            else:
+                ref_config.model_config = deepcopy(model_config)
+                ref_config.model_config.mtp = MtpConfig(enable=False)
 
             # construct TrainingWorkerConfig
             ref_training_config = TrainingWorkerConfig(
