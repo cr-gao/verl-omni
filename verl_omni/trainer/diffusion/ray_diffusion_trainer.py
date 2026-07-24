@@ -1210,6 +1210,11 @@ class DirectPreferenceRayTrainer(BaseRayDiffusionTrainer):
         **kwargs,
     ):
         super().__init__(config, *args, **kwargs)
+        if self.teacher_in_ref:
+            raise NotImplementedError(
+                "ref.model_path (teacher-in-ref) is only wired for the policy-gradient trainer; "
+                "the direct-preference path consumes ref_noise_pred from the initial policy."
+            )
         self.is_offline = config.algorithm.get("sample_source", "online") == "offline"
         loss_mode = config.actor_rollout_ref.actor.diffusion_loss.loss_mode
         # DPO needs trainer-side ref noise preds; DiffusionNFT computes ref in the actor engine.
