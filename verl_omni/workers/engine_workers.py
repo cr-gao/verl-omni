@@ -753,7 +753,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             teacher_training_config = build_teacher_training_config(
                 config=self.config,
                 model_config=model_config,
-                teacher_model_config=distillation_config.teacher_models["teacher_model"],
+                teacher_model_config=distillation_config.teacher_models["default"],
             )
             self.teacher = TrainingWorker(config=teacher_training_config)
             self.teacher.reset()
