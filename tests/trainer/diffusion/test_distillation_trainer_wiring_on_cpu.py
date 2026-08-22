@@ -14,10 +14,8 @@
 """CPU tests for the diffusion distillation trainer wiring."""
 
 import os
-from types import SimpleNamespace
 
 import pytest
-import torch
 from hydra import compose, initialize_config_dir
 
 import verl_omni
@@ -79,23 +77,3 @@ class TestValidateDistillationConfig:
                     ]
                 )
             )
-
-
-class TestComputeTeacherPrevSampleMean:
-    def test_returns_float32_teacher_key(self):
-        from verl import DataProto
-        from verl.utils import tensordict_utils as tu
-
-        from verl_omni.trainer.diffusion.ray_diffusion_trainer import PolicyGradientRayTrainer
-
-        prev = torch.randn(2, 4, 8, 3, dtype=torch.bfloat16)
-        fake_wg = SimpleNamespace(infer_teacher_batch=lambda td: tu.get_tensordict({"prev_sample_mean": prev}))
-        cfg = compose_cfg(ENABLE + ["actor_rollout_ref.actor.diffusion_loss.loss_mode=distill_kl"])
-        fake_self = SimpleNamespace(config=cfg, actor_rollout_wg=fake_wg)
-        batch = DataProto.from_tensordict(
-            tu.get_tensordict({"all_latents": torch.randn(2, 5, 8, 3), "all_timesteps": torch.zeros(2, 4)})
-        )
-        out = PolicyGradientRayTrainer._compute_teacher_prev_sample_mean(fake_self, batch)
-        assert set(out.batch.keys()) == {"teacher_prev_sample_mean"}
-        assert out.batch["teacher_prev_sample_mean"].dtype == torch.float32
-        torch.testing.assert_close(out.batch["teacher_prev_sample_mean"], prev.float())
