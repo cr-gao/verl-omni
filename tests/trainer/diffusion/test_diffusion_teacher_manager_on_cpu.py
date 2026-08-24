@@ -78,9 +78,11 @@ def make_batch(data_source):
     return batch
 
 
-def make_manager(overrides, teacher_wg):
+def make_manager(overrides, teacher_wg, **kwargs):
     cfg = compose_cfg(overrides)
-    return DiffusionTeacherManager(omega_conf_to_dataclass(cfg.distillation), cfg.actor_rollout_ref.model, teacher_wg)
+    return DiffusionTeacherManager(
+        omega_conf_to_dataclass(cfg.distillation), cfg.actor_rollout_ref.model, teacher_wg, **kwargs
+    )
 
 
 class TestDiffusionTeacherManagerInit:
@@ -131,6 +133,32 @@ class TestComputePrevSampleMean:
         assert wg["ocr"].calls == [("ocr", 4)]
         assert wg["aes"].calls == [("aes", 2)]
         assert [kind for kind, _ in log] == ["infer", "infer", "get", "get"]
+
+    def test_odd_sub_batch_padded_to_micro_batch_divisor(self):
+        log = []
+        wg = {"ocr": FakeTeacherWorkerGroup(1.0, 2, log), "aes": FakeTeacherWorkerGroup(2.0, 2, log)}
+        manager = make_manager(MULTI, wg, infer_micro_batch_size_per_gpu=8)
+        data_source = ["ocr"] * 3 + ["aes"] * 5
+
+        out = manager.compute_prev_sample_mean(make_batch(data_source))
+
+        # 3 and 5 rows are both padded to world_size * micro so every rank's shard splits into micro-batches
+        assert wg["ocr"].calls == [("ocr", 16)]
+        assert wg["aes"].calls == [("aes", 16)]
+        prev = out.batch["teacher_prev_sample_mean"]
+        assert prev.shape == (8, 4, 8, 3)
+        expected = torch.tensor([1.0] * 3 + [2.0] * 5).view(8, 1, 1, 1).expand(8, 4, 8, 3)
+        torch.testing.assert_close(prev, expected)
+
+    def test_without_micro_batch_size_pads_to_world_size_only(self):
+        log = []
+        wg = {"ocr": FakeTeacherWorkerGroup(1.0, 2, log), "aes": FakeTeacherWorkerGroup(2.0, 1, log)}
+        manager = make_manager(MULTI, wg)
+
+        manager.compute_prev_sample_mean(make_batch(["ocr", "ocr", "ocr", "aes"]))
+
+        assert wg["ocr"].calls == [("ocr", 4)]
+        assert wg["aes"].calls == [("aes", 1)]
 
     def test_single_teacher_dispatches_whole_batch_once(self):
         log = []

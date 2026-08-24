@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Optional
+
 import numpy as np
 import torch
 from omegaconf import DictConfig
@@ -33,8 +35,10 @@ class DiffusionTeacherManager:
         distillation_config: DiffusionDistillationConfig,
         model_config: DictConfig,
         teacher_wg: dict[str, WorkerGroup],
+        infer_micro_batch_size_per_gpu: Optional[int] = None,
     ):
         self.distillation_config = distillation_config
+        self.infer_micro_batch_size_per_gpu = infer_micro_batch_size_per_gpu
         self.teacher_key: str = distillation_config.teacher_key
         self.teacher_model_configs: dict[str, DiffusionDistillationTeacherModelConfig] = (
             distillation_config.teacher_models
@@ -91,12 +95,14 @@ class DiffusionTeacherManager:
         if len(self.teacher_model_configs) == 1:
             return self._to_dataproto(self._infer(batch, routing_keys[0]).get())
         # dispatch per teacher from the driver so every DP rank of a teacher sees a non-empty shard
+        # that splits evenly into forward micro-batches
         order, pending = [], []
         for teacher_key, wg in self.teacher_wg.items():
             idxs = np.flatnonzero(routing_keys == teacher_key)
             if len(idxs) == 0:
                 continue
-            padded, pad_size = pad_dataproto_to_divisor(batch.select_idxs(idxs), wg.world_size)
+            size_divisor = wg.world_size * (self.infer_micro_batch_size_per_gpu or 1)
+            padded, pad_size = pad_dataproto_to_divisor(batch.select_idxs(idxs), size_divisor)
             pending.append((self._infer(padded, teacher_key), pad_size))
             order.append(idxs)
         outputs = [unpad_dataproto(self._to_dataproto(future.get()), pad_size) for future, pad_size in pending]

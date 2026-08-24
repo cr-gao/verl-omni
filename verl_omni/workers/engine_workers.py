@@ -513,6 +513,16 @@ class TrainingWorker(Worker, DistProfilerExtension):
         return self.engine.load_checkpoint(local_path, hdfs_path, del_local_after_load)
 
 
+def resolve_teacher_infer_micro_batch_size(config: DictConfig) -> Optional[int]:
+    """Micro batch size the teacher engine splits its forward-only scoring into."""
+    infer_micro_bsz = config.ref.get("log_prob_micro_batch_size_per_gpu", None)
+    if infer_micro_bsz is None:
+        infer_micro_bsz = config.ref.get("ppo_micro_batch_size_per_gpu", None)
+    if infer_micro_bsz is None:
+        infer_micro_bsz = config.actor.ppo_micro_batch_size_per_gpu
+    return infer_micro_bsz
+
+
 def build_teacher_training_config(
     config: DictConfig,
     model_config: DiffusionModelConfig,
@@ -537,12 +547,9 @@ def build_teacher_training_config(
         optimizer_config=teacher_config.optim,
         checkpoint_config=teacher_config.checkpoint,
     )
-    infer_micro_bsz = config.ref.get("log_prob_micro_batch_size_per_gpu", None)
-    if infer_micro_bsz is None:
-        infer_micro_bsz = config.ref.get("ppo_micro_batch_size_per_gpu", None)
-    if infer_micro_bsz is None:
-        infer_micro_bsz = config.actor.ppo_micro_batch_size_per_gpu
-    teacher_training_config.engine_config.infer_micro_batch_size_per_gpu = infer_micro_bsz
+    teacher_training_config.engine_config.infer_micro_batch_size_per_gpu = resolve_teacher_infer_micro_batch_size(
+        config
+    )
     return teacher_training_config
 
 

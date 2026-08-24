@@ -832,8 +832,13 @@ class BaseRayDiffusionTrainer(ABC):
                     wg.init_model()
             else:
                 teacher_wg = {key: self.actor_rollout_wg for key in self.distillation_config.teacher_models}
+            from verl_omni.workers.engine_workers import resolve_teacher_infer_micro_batch_size
+
             self.teacher_model_manager = DiffusionTeacherManager(
-                self.distillation_config, self.config.actor_rollout_ref.model, teacher_wg
+                self.distillation_config,
+                self.config.actor_rollout_ref.model,
+                teacher_wg,
+                infer_micro_batch_size_per_gpu=resolve_teacher_infer_micro_batch_size(self.config.actor_rollout_ref),
             )
 
         return actor_rollout_resource_pool
