@@ -1,6 +1,6 @@
 # Diffusion On-Policy Distillation
 
-Last updated: 08/23/2026.
+Last updated: 08/26/2026.
 
 ## Background
 
@@ -32,6 +32,30 @@ The teacher is fused into the actor worker the same way the reference model
 is: a third frozen, forward-only engine that replays the student's
 trajectories with a different checkpoint. Teacher and reference can coexist,
 so distillation can be combined with a KL penalty toward the initial policy.
+
+## Teacher Runtime
+
+`DiffusionTeacherManager` runs teacher scoring as one stage of the training
+step, after rewards and before the actor update. Each teacher is a worker
+group of frozen, forward-only engines; a batch passes through four moves:
+
+1. **Route.** The batch column named by `teacher_key` maps every sample to a
+   teacher. A single-teacher setup skips the column; a missing column or an
+   unmatched key raises instead of mis-routing.
+2. **Split and pad.** The batch is split into one sub-batch per teacher, and
+   each sub-batch is padded by repeating its own rows up to a multiple of the
+   teacher's `world_size ×` scoring micro-batch size — so every data-parallel
+   rank gets a non-empty shard that divides evenly into forward micro-batches,
+   whatever the step's task mix is.
+3. **Score.** All sub-batches are dispatched before any result is awaited, so
+   teachers score concurrently. Each teacher replays the stored student states
+   through its own transformer and returns its per-step transition means.
+4. **Reassemble.** Outputs are unpadded, concatenated, and restored to the
+   input row order, then merged into the batch as `teacher_prev_sample_mean`.
+
+Routing and padding happen on the driver, before dispatch, so teacher
+placement is purely a resource decision: colocated teachers and a standalone
+pool see identical inputs and produce identical outputs.
 
 ## Configuration Parameters
 
