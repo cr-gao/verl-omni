@@ -811,6 +811,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.rollout = rollout_cls(
                 config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
             )
+            # bench-only: containers without pidfd_getfd cannot rebuild CUDA IPC handles
+            if os.getenv("VERL_OMNI_BENCH_FORCE_SHM") == "1":
+                self.rollout.use_shm = True
 
             # used for LoRA (base_sync_done is unused in merge-only mode but kept for Phase 2 adapter path)
             self.base_sync_done: bool = "dummy" not in self.config.rollout.load_format
