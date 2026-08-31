@@ -127,8 +127,6 @@ class PolicyGradientDiffusionTrainerV1(ABC):
         self.use_teacher_policy = is_distillation_enabled(config.get("distillation"))
         self.distillation_config = omega_conf_to_dataclass(config.distillation) if self.use_teacher_policy else None
         validate_distillation_config(config)
-        if self.use_teacher_policy and self.trainer_mode != "sync":
-            raise NotImplementedError("distillation is only supported with trainer_mode='sync'")
         self.replay_buffer = self._build_replay_buffer()
 
         # ref_in_actor: reference policy is the actor without lora applied.
