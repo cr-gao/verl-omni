@@ -172,8 +172,7 @@ teacher stage time without changing the scores.
 
 Supported scope: the policy-gradient trainer with online sampling and
 FSDP/FSDP2 engines, on both the legacy trainer (`main_diffusion`) and the v1
-sync trainer (`main_diffusion_v1` with `trainer.v1.trainer_mode=sync`; the
-v1 `separate_async` mode does not support distillation yet). Unsupported
+trainer (`main_diffusion_v1`, `sync` and `separate_async` modes). Unsupported
 combinations raise at startup.
 
 A complete working recipe is

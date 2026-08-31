@@ -60,9 +60,33 @@ class TestV1DistillationInit:
                 ]
             )
 
-    def test_separate_async_mode_rejected(self):
-        with pytest.raises(NotImplementedError, match="sync"):
-            make_trainer(ENABLE + ["trainer.v1.trainer_mode=separate_async"])
+    def test_separate_async_supports_distillation(self):
+        from verl.trainer.ppo.utils import Role
+
+        from verl_omni.trainer.diffusion.v1.trainer_separate_async import (
+            PolicyGradientDiffusionTrainerV1SeparateAsync,
+        )
+
+        trainer = PolicyGradientDiffusionTrainerV1SeparateAsync(
+            compose_cfg(
+                ENABLE
+                + [
+                    "trainer.v1.trainer_mode=separate_async",
+                    "trainer.v1.separate_async.parameter_sync_step=1",
+                    "actor_rollout_ref.rollout.nnodes=1",
+                    "actor_rollout_ref.rollout.n_gpus_per_node=1",
+                    "actor_rollout_ref.rollout.checkpoint_engine.backend=nccl",
+                    "data.train_batch_size=8",
+                    "actor_rollout_ref.actor.ppo_mini_batch_size=8",
+                    "distillation.n_gpus_per_node=1",
+                    "distillation.nnodes=1",
+                ]
+            )
+        )
+        assert trainer.use_teacher_policy
+        trainer._init_resource_pool_mgr()
+        assert trainer.resource_pool_manager.resource_pool_spec["teacher_pool"] == [1]
+        assert Role.TeacherModel in trainer.role_worker_mapping
 
 
 class TestV1TeacherPoolRegistration:
