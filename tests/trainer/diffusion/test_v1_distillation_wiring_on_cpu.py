@@ -134,6 +134,7 @@ class TestOneStepOffScheduler:
                 "distillation.scheduler=one_step_off",
                 "distillation.n_gpus_per_node=1",
                 "distillation.nnodes=1",
+                "trainer.v1.separate_async.num_warmup_batches=2",
             ]
         )
         assert trainer.distillation_config.scheduler == "one_step_off"
@@ -156,6 +157,7 @@ class TestOneStepOffScheduler:
                 "distillation.scheduler=one_step_off",
                 "distillation.n_gpus_per_node=1",
                 "distillation.nnodes=1",
+                "trainer.v1.separate_async.num_warmup_batches=2",
             ]
         )
         sampled = iter(["b1", "b2", "b3"])
@@ -174,3 +176,14 @@ class TestOneStepOffScheduler:
 
         assert trained == [("b1", "data_b1", "handle_b1"), ("b2", "data_b2", "handle_b2")]
         assert trainer._pending_teacher_batch[0] == "b3"
+
+    def test_one_step_off_requires_two_warmup_batches(self):
+        with pytest.raises(ValueError, match="num_warmup_batches"):
+            make_separate_async_trainer(
+                [
+                    "distillation.scheduler=one_step_off",
+                    "distillation.n_gpus_per_node=1",
+                    "distillation.nnodes=1",
+                    "trainer.v1.separate_async.num_warmup_batches=1",
+                ]
+            )

@@ -101,6 +101,12 @@ def validate_distillation_config(config) -> None:
                 "distillation.scheduler=one_step_off contradicts "
                 "trainer.v1.separate_async.sync_compatible=true, which emulates synchronous training."
             )
+        if config.trainer.v1.separate_async.get("num_warmup_batches", 1) < 2:
+            raise ValueError(
+                "distillation.scheduler=one_step_off requires trainer.v1.separate_async.num_warmup_batches >= 2: "
+                "the teacher pipeline consumes one batch of generation lead at start-up, and with less lead every "
+                "sample waits on its own batch's generation."
+            )
 
 
 class NoOpCheckpointManager:
