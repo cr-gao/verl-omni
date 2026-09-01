@@ -88,7 +88,7 @@ def validate_distillation_config(config) -> None:
         )
     if enabled and config.algorithm.trainer_type != "policy_gradient":
         raise NotImplementedError("Diffusion distillation requires algorithm.trainer_type=policy_gradient.")
-    if enabled and config.distillation.get("scheduler", "sync") == "one_step_off":
+    if enabled and config.distillation.get("scheduler", "inline") == "one_step_off":
         v1 = config.trainer.get("use_v1", False) and config.trainer.v1.trainer_mode == "separate_async"
         if not v1 or config.distillation.nnodes <= 0:
             raise ValueError(

@@ -116,9 +116,9 @@ class TestV1TeacherPoolRegistration:
 
 
 class TestOneStepOffScheduler:
-    def test_scheduler_defaults_to_sync(self):
+    def test_scheduler_defaults_to_inline(self):
         trainer = make_trainer(ENABLE)
-        assert trainer.distillation_config.scheduler == "sync"
+        assert trainer.distillation_config.scheduler == "inline"
 
     def test_one_step_off_requires_separate_async(self):
         with pytest.raises(ValueError, match="one_step_off"):
