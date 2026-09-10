@@ -191,6 +191,16 @@ Logged metrics: `timing_s/switch_wait`, `timing_s/switch_to_rollout`,
 `separate_async/decision/*`. Throughput metrics normalize by the total of
 actor and standalone rollout GPUs.
 
+Reclaiming waits for the batch the colocated replicas are executing to
+finish: the diffusion engine runs whole request batches and only then
+processes the abort and the sleep, so `timing_s/switch_to_trainer` includes
+up to one batch of generation. The tiny smoke covers this path:
+
+```bash
+ENABLE_SWITCH=1 NUM_WARMUP_BATCHES=1 \
+bash tests/special_e2e/run_flowgrpo_qwen_image_v1_separate_async.sh
+```
+
 ## Important settings
 
 - `trainer.use_v1=true` selects the V1 trainer instead of the legacy diffusion
