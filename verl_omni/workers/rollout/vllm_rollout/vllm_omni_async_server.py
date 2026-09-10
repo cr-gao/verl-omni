@@ -428,10 +428,11 @@ class vLLMOmniHttpServer(vLLMHttpServer):
         request_ids = [external_id for _, external_id, _ in in_flight]
 
         try:
-            # TODO (mike): multi-stage AR abort is broken upstream — the engine's
-            # abort fallback terminal is stage_id=0 and the consume loop breaks on
-            # finished non-final messages, so generate() exits empty. Single-stage /
-            # thinker-only is correct here; needs a vllm-omni fix + pin bump.
+            # TODO (mike): multi-stage AR abort still needs a vllm-omni fix: its
+            # abort terminal is stage_id=0 and the consumer stops at the first
+            # finished message, so when that terminal lands before the state is
+            # popped generate() exits empty. The final-stage terminal synthesized
+            # below only covers the case where it lands late and is dropped.
             await asyncio.wait_for(
                 engine.abort(request_ids), timeout=float(os.getenv("VERL_OMNI_ABORT_ACK_TIMEOUT_S", "120"))
             )
