@@ -139,8 +139,7 @@ class PolicyGradientDiffusionTrainerV1SeparateAsync(PolicyGradientDiffusionTrain
             disaggregation_cfg = rollout_cfg.get("disaggregation", {})
             if bool(disaggregation_cfg.get("enabled", False)):
                 raise ValueError(
-                    "trainer.v1.separate_async.hybrid_rollout.enable_switch does not support rollout disaggregation: "
-                    "step-boundary redistribution relies on paused replicas queueing new requests"
+                    "trainer.v1.separate_async.hybrid_rollout.enable_switch does not support rollout disaggregation"
                 )
             required_methods = ("wait_for_sampleable", "get_sampleable_count")
             if any(not hasattr(self.replay_buffer, method) for method in required_methods):
