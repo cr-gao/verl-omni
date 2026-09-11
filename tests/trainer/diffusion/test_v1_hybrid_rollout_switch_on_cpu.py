@@ -442,6 +442,26 @@ def test_inventory_gate_skips_lending_when_the_target_is_already_buffered():
     assert trainer._pending_sync_metrics["separate_async/decision/should_switch_to_rollout"] == 0.0
 
 
+def test_inventory_is_counted_after_the_standalone_sync():
+    trainer = _trainer(sampleable_count=0)
+    trainer.current_mode = HybridEngineMode.TRAINER
+    standalone_update = trainer.standalone_checkpoint_manager.update_weights
+
+    def update_weights(global_steps):
+        # The standalone batch in flight at step end lands while the weights sync.
+        trainer.replay_buffer.sampleable_count = 16
+        return standalone_update(global_steps)
+
+    trainer.standalone_checkpoint_manager.update_weights = update_weights
+
+    trainer.on_step_begin()
+    trainer.on_step_end()
+
+    assert trainer.events == ["standalone_update"]
+    assert trainer._pending_sync_metrics["separate_async/decision/sampleable_count"] == 16.0
+    assert trainer._pending_sync_metrics["separate_async/decision/should_switch_to_rollout"] == 0.0
+
+
 def test_cost_gate_skips_lending_when_the_remaining_work_is_cheaper_to_fill_on_standalone():
     trainer = _trainer(sampleable_count=15)
     trainer.current_mode = HybridEngineMode.TRAINER
