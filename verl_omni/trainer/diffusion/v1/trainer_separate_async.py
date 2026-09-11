@@ -30,9 +30,11 @@ hook semantics, adapted to verl-omni diffusion rollout:
    lends the colocated replicas to generation at the end of a step when the
    replay buffer is short for the next one, and reclaims them once enough
    prompt groups are sampleable. The switch policy is ported method by method
-   from the upstream trainer. Unlike upstream, colocated replicas join the
-   load balancer only after the naive sync has resumed them, because the
-   vLLM-Omni engine rejects requests while any sleeping tag is set.
+   from the upstream trainer. Unlike upstream, the lend decision is taken
+   after the standalone weight sync, so a batch that lands during the sync
+   is counted, and colocated replicas join the load balancer only after the
+   naive sync has resumed them, because the vLLM-Omni engine rejects
+   requests while any sleeping tag is set.
 
 Diffusion-specific compute (reward, old/ref log-prob, Flow-GRPO advantage,
 actor update, metrics, dumping) lives in ``PolicyGradientDiffusionTrainerV1``;
@@ -387,45 +389,6 @@ class PolicyGradientDiffusionTrainerV1SeparateAsync(PolicyGradientDiffusionTrain
 
     def on_step_end(self):
         config = self.hybrid_rollout_config
-        should_switch = False
-        decision_metrics: dict[str, float] = {}
-        if config.enable_switch:
-            ratio_used = self._switch_threshold_ratio
-            had_idle = self._step_had_idle()
-            if self._step_wait_samples > 0 and self._step_sample_wait_seconds > 0:
-                self._wait_seconds += self._step_sample_wait_seconds
-                self._wait_samples += self._step_wait_samples
-            if config.adaptive_switch_threshold:
-                self._adapt_switch_threshold(had_idle)
-
-            decision_threshold = self._switch_threshold()
-            sampleable_count = self.replay_buffer.get_sampleable_count(self.global_steps + 1, "train")
-            remaining = max(0, decision_threshold - sampleable_count)
-            per_sample_time = self._wait_seconds / self._wait_samples if self._wait_samples > 0 else None
-            effective_switch_cost = self._effective_switch_cost()
-            benefit = (
-                remaining * per_sample_time * (1.0 - 1.0 / self._scaling_factor)
-                if per_sample_time is not None
-                else None
-            )
-            should_switch = (
-                self.global_steps < self.total_training_steps
-                and remaining > 0
-                and (benefit is None or effective_switch_cost is None or benefit > effective_switch_cost)
-            )
-            decision_metrics = {
-                "separate_async/switch/threshold_ratio": ratio_used,
-                "separate_async/switch/wait_samples": float(self._step_wait_samples),
-                "separate_async/switch/idle": float(had_idle),
-                "separate_async/decision/sampleable_count": float(sampleable_count),
-                "separate_async/decision/remaining": float(remaining),
-                "separate_async/decision/should_switch_to_rollout": float(should_switch),
-            }
-            if per_sample_time is not None:
-                decision_metrics["separate_async/decision/per_sample_time_seconds"] = per_sample_time
-            if effective_switch_cost is not None:
-                decision_metrics["separate_async/decision/effective_switch_cost_seconds"] = effective_switch_cost
-
         with marked_timer("update_weights", self.timing_raw, color="red"):
             self._pending_sync_metrics = dict(
                 self.standalone_checkpoint_manager.update_weights(self.global_steps) or {}
@@ -436,16 +399,54 @@ class PolicyGradientDiffusionTrainerV1SeparateAsync(PolicyGradientDiffusionTrain
                 # fresh weights, exactly like sync mode waking colocated replicas.
                 self._resume_standalone_generation()
 
-        if config.enable_switch:
-            self._pending_sync_metrics.update(decision_metrics)
+        if not config.enable_switch:
+            return
 
-            if should_switch:
-                switch_start = time.perf_counter()
-                with marked_timer("switch_to_rollout", self.timing_raw, color="cyan"):
-                    logger.info("Switching hybrid engine to rollout mode for the next step")
-                    self.switch_to_rollout()
-                    self.clear_sticky_cache()
-                self._to_rollout_costs.append(time.perf_counter() - switch_start)
+        # Decide after the standalone sync: the batch that was in flight at step
+        # end has landed by now, so the inventory count is not a phantom gap.
+        ratio_used = self._switch_threshold_ratio
+        had_idle = self._step_had_idle()
+        if self._step_wait_samples > 0 and self._step_sample_wait_seconds > 0:
+            self._wait_seconds += self._step_sample_wait_seconds
+            self._wait_samples += self._step_wait_samples
+        if config.adaptive_switch_threshold:
+            self._adapt_switch_threshold(had_idle)
+
+        decision_threshold = self._switch_threshold()
+        sampleable_count = self.replay_buffer.get_sampleable_count(self.global_steps + 1, "train")
+        remaining = max(0, decision_threshold - sampleable_count)
+        per_sample_time = self._wait_seconds / self._wait_samples if self._wait_samples > 0 else None
+        effective_switch_cost = self._effective_switch_cost()
+        benefit = (
+            remaining * per_sample_time * (1.0 - 1.0 / self._scaling_factor) if per_sample_time is not None else None
+        )
+        should_switch = (
+            self.global_steps < self.total_training_steps
+            and remaining > 0
+            and (benefit is None or effective_switch_cost is None or benefit > effective_switch_cost)
+        )
+        self._pending_sync_metrics.update(
+            {
+                "separate_async/switch/threshold_ratio": ratio_used,
+                "separate_async/switch/wait_samples": float(self._step_wait_samples),
+                "separate_async/switch/idle": float(had_idle),
+                "separate_async/decision/sampleable_count": float(sampleable_count),
+                "separate_async/decision/remaining": float(remaining),
+                "separate_async/decision/should_switch_to_rollout": float(should_switch),
+            }
+        )
+        if per_sample_time is not None:
+            self._pending_sync_metrics["separate_async/decision/per_sample_time_seconds"] = per_sample_time
+        if effective_switch_cost is not None:
+            self._pending_sync_metrics["separate_async/decision/effective_switch_cost_seconds"] = effective_switch_cost
+
+        if should_switch:
+            switch_start = time.perf_counter()
+            with marked_timer("switch_to_rollout", self.timing_raw, color="cyan"):
+                logger.info("Switching hybrid engine to rollout mode for the next step")
+                self.switch_to_rollout()
+                self.clear_sticky_cache()
+            self._to_rollout_costs.append(time.perf_counter() - switch_start)
 
     def _get_n_gpus_for_throughput(self) -> int:
         """Include standalone rollout GPUs in the throughput denominator."""
