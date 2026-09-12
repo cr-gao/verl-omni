@@ -280,8 +280,16 @@ class vLLMOmniHttpServer(vLLMHttpServer):
         with RLInsightLogger.trace_state("vllm_sleep", state_lane_id=f"replica_{self.replica_rank}"):
             acks = await self.engine.sleep(level=self._resolve_sleep_level())
             self._validate_acks("sleep", acks)
+            if self._reclaims_late_requests():
+                # Release the requests waiting at the admission gate: the sleeping
+                # engine rejects them and generate() turns that into an abort.
+                await self.engine.resume_generation()
             await self._reset_frontend_mm_cache()
             self._invalidate_lora_request_cache()
+
+    def _reclaims_late_requests(self) -> bool:
+        """Hybrid diffusion replicas are reclaimed by the trainer without a later resume."""
+        return self.rollout_mode == RolloutMode.HYBRID and isinstance(self._generate_strategy, DiffusionStrategy)
 
     async def release_kv_cache(self):
         """Free cache around a weight sync without discarding Omni weights.
@@ -347,20 +355,26 @@ class vLLMOmniHttpServer(vLLMHttpServer):
         negative_extra_prompt_ids: Optional[dict[str, list[int]]] = None,
         priority: int = 0,
     ) -> DiffusionOutput | TokenOutput:
-        return await self._generate_strategy.generate(
-            prompt_ids=prompt_ids,
-            sampling_params=sampling_params,
-            request_id=request_id,
-            image_data=image_data,
-            video_data=video_data,
-            audio_data=audio_data,
-            mm_processor_kwargs=mm_processor_kwargs,
-            negative_prompt_ids=negative_prompt_ids,
-            prompt_mask=prompt_mask,
-            extra_prompt_ids=extra_prompt_ids,
-            negative_extra_prompt_ids=negative_extra_prompt_ids,
-            priority=priority,
-        )
+        try:
+            return await self._generate_strategy.generate(
+                prompt_ids=prompt_ids,
+                sampling_params=sampling_params,
+                request_id=request_id,
+                image_data=image_data,
+                video_data=video_data,
+                audio_data=audio_data,
+                mm_processor_kwargs=mm_processor_kwargs,
+                negative_prompt_ids=negative_prompt_ids,
+                prompt_mask=prompt_mask,
+                extra_prompt_ids=extra_prompt_ids,
+                negative_extra_prompt_ids=negative_extra_prompt_ids,
+                priority=priority,
+            )
+        except RuntimeError:
+            if not (self._reclaims_late_requests() and self.engine._sleeping_tags):
+                raise
+            # Rejected by a reclaimed replica: report an abort so the client retries the whole sample elsewhere.
+            return self._generate_strategy.process_output(None, None, sampling_params)
 
     # -----------------------------------------------------------------------
     # Shared LoRA state
@@ -441,6 +455,8 @@ class vLLMOmniHttpServer(vLLMHttpServer):
             await engine.pause_generation(
                 mode="abort", wait_for_inflight_requests=False, clear_cache=reset_prefix_cache
             )
+            if self._reclaims_late_requests():
+                request_ids = request_ids + await self._abort_admitted_after_pause(engine, seen)
         except Exception:
             # Nothing engine-side enqueued terminals — synthesize them so
             # generate() cannot hang on queue.get.
@@ -457,6 +473,26 @@ class vLLMOmniHttpServer(vLLMHttpServer):
 
         logger.info("Aborted %d request(s): %s", len(request_ids), request_ids)
         return {"aborted_count": len(request_ids), "request_ids": request_ids}
+
+    async def _abort_admitted_after_pause(self, engine: Any, seen: set[str]) -> list[str]:
+        """Abort the requests admitted between the first snapshot and the pause.
+
+        The gate is closed, so once no generate() still holds an admission slot
+        the request table is final. The engine drains aborts before RPCs, so the
+        scheduler is empty by the time the sleep RPC runs.
+        """
+        async with engine._pause_cond:
+            await engine._pause_cond.wait_for(lambda: engine._admitting == 0)
+        late = list(
+            dict.fromkeys(
+                state.external_request_id
+                for state in engine.request_states.values()
+                if state.external_request_id not in seen
+            )
+        )
+        if late:
+            await asyncio.wait_for(engine.abort(late), timeout=float(os.getenv("VERL_OMNI_ABORT_ACK_TIMEOUT_S", "120")))
+        return late
 
     def _enqueue_abort_output(self, internal_id: str, req_state: Any) -> None:
         """Synthesize a terminal abort OutputMessage and put it into a per-request queue.

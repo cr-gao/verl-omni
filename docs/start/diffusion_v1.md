@@ -153,19 +153,19 @@ overlap.
 ### Hybrid rollout switching
 
 The colocated rollout replicas share GPUs with the actor. By default they are
-lent to generation only during warmup and validation: they start in rollout
-mode after initialization, and the first training step reclaims them
-(aborts their in-flight requests, sleeps them, and removes them from the
-load balancer) before any actor update. Validation lends them out again and
-the next step reclaims them.
+lent to generation only during validation: they start in rollout mode after
+initialization and are reclaimed (removed from the load balancer, in-flight
+requests aborted, slept) before the warmup batches are fed. Validation lends
+them out again and the next step reclaims them. A request that reaches a
+reclaimed replica is answered with an abort and retried on the standalone
+replicas.
 
 Enable dynamic switching so the trainer also lends them to the next step's
 generation whenever the replay buffer is short:
 
 ```bash
-trainer.v1.separate_async.sync_compatible=false \
-trainer.v1.separate_async.hybrid_rollout.enable_switch=true \
-bash examples/flowgrpo_trainer/sd35/run_sd35_medium_ocr_lora_v1_separate_async.sh
+SYNC_COMPATIBLE=false bash examples/flowgrpo_trainer/sd35/run_sd35_medium_ocr_lora_v1_separate_async.sh \
+    trainer.v1.separate_async.hybrid_rollout.enable_switch=true
 ```
 
 At the end of a step, the trainer syncs the standalone replicas as usual and

@@ -283,6 +283,10 @@ class PolicyGradientDiffusionTrainerV1SeparateAsync(PolicyGradientDiffusionTrain
         self.checkpoint_manager.update_weights(self.global_steps)
 
     def on_train_begin(self):
+        if not self.hybrid_rollout_config.enable_switch and self.current_mode == HybridEngineMode.ROLLOUT:
+            # Reclaim before the warmup feed so no warmup request is routed to a replica about to sleep.
+            logger.info("Switching hybrid engine to trainer mode before the warmup feed")
+            self.switch_to_trainer()
         num_warmup_batches = self.config.trainer.v1.separate_async.num_warmup_batches
         for _ in range(num_warmup_batches):
             self._add_batch_to_generate()
