@@ -181,6 +181,7 @@ def test_lifecycle_trace_uses_replica_lane(monkeypatch, method_name, state_prefi
     server.rollout_mode = RolloutMode.HYBRID
     server.config = SimpleNamespace(free_cache_engine=True)
     server._lora_request_cache = None
+    server._generate_strategy = vllm_omni_async_server.ARStrategy(server)
     monkeypatch.setattr(
         vllm_omni_async_server.RLInsightLogger,
         "trace_state",
