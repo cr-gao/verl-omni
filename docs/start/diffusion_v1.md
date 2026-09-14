@@ -156,9 +156,7 @@ The colocated rollout replicas share GPUs with the actor. By default they are
 lent to generation only during validation: they start in rollout mode after
 initialization and are reclaimed (removed from the load balancer, in-flight
 requests aborted, slept) before the warmup batches are fed. Validation lends
-them out again and the next step reclaims them. A request that reaches a
-reclaimed replica is answered with an abort and retried on the standalone
-replicas.
+them out again and the next step reclaims them.
 
 Enable dynamic switching so the trainer also lends them to the next step's
 generation whenever the replay buffer is short:

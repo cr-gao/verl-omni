@@ -27,9 +27,7 @@ server_module = pytest.importorskip("verl_omni.workers.rollout.vllm_rollout.vllm
 
 from verl.workers.rollout.replica import RolloutMode  # noqa: E402
 
-from verl_omni.workers.rollout.vllm_rollout.vllm_omni_ar_strategy import ARStrategy  # noqa: E402
 from verl_omni.workers.rollout.vllm_rollout.vllm_omni_async_server import vLLMOmniHttpServer  # noqa: E402
-from verl_omni.workers.rollout.vllm_rollout.vllm_omni_diffusion_strategy import DiffusionStrategy  # noqa: E402
 from verl_omni.workers.rollout.vllm_rollout.vllm_omni_strategy_base import OmniStrategyBase  # noqa: E402
 
 _SUCCESS_ACK = SimpleNamespace(status="SUCCESS")
@@ -60,14 +58,6 @@ class _FakeAsyncOmni:
         self.sleep_calls: list[dict] = []
         self.wake_calls: list[dict] = []
         self.resumed = 0
-        # Admission gate state of the pinned AsyncOmni: generate() holds an
-        # `_admitting` slot across add_request, sleep sets the sleeping tags.
-        self._pause_cond = asyncio.Condition()
-        self._admitting = 0
-        self._sleeping_tags: set[str] = set()
-        self.on_pause = None
-        self.aborted: set[str] = set()
-        self.unaborted_at_sleep: set[str] | None = None
         # Real-shaped handle: the frontend multimodal cache lives on the
         # renderer, so the fake must expose clear_mm_cache_async there.
         self.mm_clears = 0
@@ -83,7 +73,6 @@ class _FakeAsyncOmni:
         if self.fail_abort:
             raise RuntimeError("abort rpc failed")
         ids = request_ids if isinstance(request_ids, list) else [request_ids]
-        self.aborted.update(ids)
         for state in self.request_states.values():
             if state.external_request_id in ids:
                 state.queue.put_nowait(_terminal(state.request_id, token_ids=[7, 8, 9]))
@@ -91,16 +80,10 @@ class _FakeAsyncOmni:
     async def pause_generation(self, **kwargs):
         self.calls.append("pause")
         self.pause_calls.append(kwargs)
-        if self.on_pause is not None:
-            self.on_pause()
 
     async def sleep(self, stage_ids=None, level=2, mode="abort"):
         self.calls.append("sleep")
         self.sleep_calls.append({"stage_ids": stage_ids, "level": level, "mode": mode})
-        self.unaborted_at_sleep = {
-            s.external_request_id for s in self.request_states.values() if s.external_request_id not in self.aborted
-        }
-        self._sleeping_tags = {"weights", "kv_cache"}
         return self.sleep_acks
 
     async def wake_up(self, stage_ids=None, tags=None):
@@ -112,7 +95,7 @@ class _FakeAsyncOmni:
         self.resumed += 1
 
 
-def _make_server(engine, rollout_mode=RolloutMode.HYBRID, node_rank=0, free_cache_engine=True, strategy_cls=ARStrategy):
+def _make_server(engine, rollout_mode=RolloutMode.HYBRID, node_rank=0, free_cache_engine=True):
     # HYBRID default: release/resume_kv_cache are skipped in COLOCATED mode
     # (parent semantics), so their delegation is exercised via HYBRID.
     server = object.__new__(vLLMOmniHttpServer)
@@ -120,10 +103,8 @@ def _make_server(engine, rollout_mode=RolloutMode.HYBRID, node_rank=0, free_cach
     server.node_rank = node_rank
     server.replica_rank = 0
     server.rollout_mode = rollout_mode
-    server.global_steps = 3
     server.config = SimpleNamespace(free_cache_engine=free_cache_engine)
     server._lora_request_cache = None  # a valid cached value
-    server._generate_strategy = strategy_cls(server)
     return server
 
 
@@ -468,131 +449,6 @@ async def test_checkpoint_manager_gather_propagates_server_abort_raise():
 
 # ---------------------------------------------------------------------------
 # diffusion-only sleep/wake contract — why diffusion v1 sync needs no
-# resume bridge (drives the REAL AsyncOmni state machine, not a mock)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# hybrid diffusion reclaim: a request that reaches the replica after the abort
-# snapshot, or while it sleeps, comes back aborted instead of waiting at the
-# admission gate for a resume that the trainer never sends
-# ---------------------------------------------------------------------------
-
-
-class _RejectingDiffusionStrategy(DiffusionStrategy):
-    """The pinned AsyncOmni.generate() rejection once any sleeping tag is set."""
-
-    async def generate(self, **kwargs):
-        raise RuntimeError("Generation rejected: Engine is partially or fully asleep.")
-
-
-class _RejectingARStrategy(ARStrategy):
-    async def generate(self, **kwargs):
-        raise RuntimeError("Generation rejected: Engine is partially or fully asleep.")
-
-
-def _late_state():
-    return _FakeRequestState("ext-late-xyz", "ext-late")
-
-
-async def test_hybrid_reclaim_aborts_requests_admitted_after_the_snapshot():
-    """Admitted before the gate closed, registered after the snapshot: aborted before the replica sleeps."""
-    engine = _FakeAsyncOmni(states={"ext-1-abc": _FakeRequestState("ext-1-abc", "ext-1")})
-    late = _late_state()
-
-    def admit_late():
-        engine._admitting = 1
-
-        async def finish_add_request():
-            await asyncio.sleep(0.01)
-            async with engine._pause_cond:
-                engine.request_states[late.request_id] = late
-                engine._admitting = 0
-                engine._pause_cond.notify_all()
-
-        asyncio.get_running_loop().create_task(finish_add_request())
-
-    engine.on_pause = admit_late
-    server = _make_server(engine, strategy_cls=DiffusionStrategy)
-
-    result = await server.abort_all_requests()
-    await server.sleep()
-
-    assert [c for c in engine.calls if c in ("abort", "pause", "sleep")] == ["abort", "pause", "abort", "sleep"]
-    assert engine.abort_calls == [["ext-1"], ["ext-late"]]
-    assert result["aborted_count"] == 2
-    assert late.queue.get_nowait().finished
-    assert engine.unaborted_at_sleep == set()
-
-
-async def test_second_abort_snapshot_is_hybrid_diffusion_only():
-    for mode, strategy_cls in ((RolloutMode.STANDALONE, DiffusionStrategy), (RolloutMode.HYBRID, ARStrategy)):
-        engine = _FakeAsyncOmni(states={"ext-1-abc": _FakeRequestState("ext-1-abc", "ext-1")})
-        late = _late_state()
-        engine.on_pause = lambda engine=engine, late=late: engine.request_states.__setitem__(late.request_id, late)
-        server = _make_server(engine, rollout_mode=mode, strategy_cls=strategy_cls)
-
-        result = await server.abort_all_requests()
-
-        assert engine.abort_calls == [["ext-1"]]
-        assert result["aborted_count"] == 1
-
-
-async def test_hybrid_diffusion_sleep_releases_gate_waiters_into_the_rejection():
-    engine = _FakeAsyncOmni()
-    server = _make_server(engine, strategy_cls=DiffusionStrategy)
-
-    await server.sleep()
-
-    assert engine.resumed == 1
-
-    engine = _FakeAsyncOmni()
-    server = _make_server(engine, strategy_cls=ARStrategy)
-
-    await server.sleep()
-
-    assert engine.resumed == 0
-
-
-async def test_failed_hybrid_sleep_keeps_the_gate_closed():
-    engine = _FakeAsyncOmni(sleep_acks=[SimpleNamespace(status="FAILED", error_msg="boom")])
-    server = _make_server(engine, strategy_cls=DiffusionStrategy)
-
-    with pytest.raises(RuntimeError, match="sleep failed"):
-        await server.sleep()
-
-    assert engine.resumed == 0
-
-
-@pytest.mark.parametrize("sleeping_tags", [{"weights", "kv_cache"}, {"kv_cache"}])
-async def test_hybrid_generate_turns_the_sleeping_rejection_into_an_abort(sleeping_tags):
-    """Released from the gate after the sleep, or arriving while only the weights are back: retried elsewhere."""
-    engine = _FakeAsyncOmni()
-    engine._sleeping_tags = set(sleeping_tags)
-    server = _make_server(engine, strategy_cls=_RejectingDiffusionStrategy)
-
-    output = await server.generate(prompt_ids=[1, 2], sampling_params={}, request_id="ext-late")
-
-    assert output.stop_reason == "aborted"
-    assert output.diffusion_output.numel() == 0
-    assert output.extra_fields["global_steps"] == 3
-
-
-async def test_sleeping_rejection_is_only_converted_for_hybrid_diffusion():
-    for mode, strategy_cls, tags in (
-        (RolloutMode.STANDALONE, _RejectingDiffusionStrategy, {"kv_cache"}),
-        (RolloutMode.HYBRID, _RejectingARStrategy, {"kv_cache"}),
-        (RolloutMode.HYBRID, _RejectingDiffusionStrategy, set()),
-    ):
-        engine = _FakeAsyncOmni()
-        engine._sleeping_tags = set(tags)
-        server = _make_server(engine, rollout_mode=mode, strategy_cls=strategy_cls)
-
-        with pytest.raises(RuntimeError, match="Generation rejected"):
-            await server.generate(prompt_ids=[1, 2], sampling_params={}, request_id="ext-late")
-
-
-# ---------------------------------------------------------------------------
 # resume bridge (drives the REAL AsyncOmni state machine, not a mock)
 # ---------------------------------------------------------------------------
 
