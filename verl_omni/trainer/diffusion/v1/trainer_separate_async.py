@@ -83,10 +83,14 @@ class PolicyGradientDiffusionTrainerV1SeparateAsync(PolicyGradientDiffusionTrain
     Hook behavior:
 
     - ``_setup``: colocated replicas start in rollout mode and registered with
-      the standalone load balancer, so warmup and validation use both pools.
+      the standalone load balancer. With switching enabled, warmup and
+      validation use both pools; with it disabled (default), only validation
+      does.
     - ``on_init_end``: update weights on both the standalone and colocated
       checkpoint managers.
-    - ``on_train_begin``: enqueue ``num_warmup_batches`` prompt batches.
+    - ``on_train_begin``: with switching disabled, reclaim the colocated
+      replicas first so no warmup request is routed to a replica that is about
+      to be aborted; then enqueue ``num_warmup_batches`` prompt batches.
     - ``on_step_begin``: reclaim the colocated replicas (abort + sleep, remove
       from the balancer) when switching is disabled or the replay buffer already
       holds the switch threshold; otherwise ``prepare_step`` submits this step's

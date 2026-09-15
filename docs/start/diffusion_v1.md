@@ -1,6 +1,6 @@
 # Diffusion V1 training
 
-Last updated: 09/10/2026
+Last updated: 09/15/2026
 
 This guide runs the diffusion V1 trainer in synchronous or separate-asynchronous
 mode using the provided Stable Diffusion 3.5 Medium FlowGRPO OCR recipes.
@@ -186,8 +186,11 @@ knobs follow the upstream `HybridRolloutSwitchConfig` defaults:
 
 Logged metrics: `timing_s/switch_wait`, `timing_s/switch_to_rollout`,
 `timing_s/switch_to_trainer`, `separate_async/switch/*`, and
-`separate_async/decision/*`. Throughput metrics normalize by the total of
-actor and standalone rollout GPUs.
+`separate_async/decision/*`.
+
+Throughput metrics of every `separate_async` run, with switching on or off, now
+also count the standalone rollout GPUs in the denominator, so they read lower
+than earlier runs of the same recipe.
 
 Reclaiming waits for the batch the colocated replicas are executing to
 finish: the diffusion engine runs whole request batches and only then
