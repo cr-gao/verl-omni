@@ -1,6 +1,6 @@
 # Diffusion On-Policy Distillation
 
-Last updated: 10/12/2026.
+Last updated: 10/22/2026.
 
 ## Background
 
@@ -24,7 +24,9 @@ closed form, implemented by the `distill_kl` loss:
 = \frac{\lVert \mu_\theta - \mu_\text{teacher} \rVert^2}{2 \sigma_t^2},
 ```
 
-averaged over latent dimensions. This is the diffusion analog of matching
+averaged over latent dimensions. On deterministic (ODE) steps, where
+`noise_level = 0` gives `σ_t = 0`, the loss is the unit-variance surrogate
+`½‖μ_θ − μ_teacher‖²`. This is the diffusion analog of matching
 next-token log-probabilities in LLM OPD: the teacher scores the student's
 states, and the student moves its transition means toward the teacher's.
 
