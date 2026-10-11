@@ -79,9 +79,9 @@ teachers run CFG 4.5 and the GenEval teacher CFG 1.0
 (`data.sampler`) gives every generation batch the same number of rows per task,
 and one optimizer step spans the whole batch, so an update matches feeding one
 single-task batch per teacher under gradient accumulation. Rewards are monitored
-only: GenRM OCR for OCR rows and PickScore for PickScore rows; GenEval rows also
-report PickScore as a stand-in, since the detector-based GenEval scorer is not
-ported.
+only: GenRM OCR for OCR rows and PickScore for PickScore rows. GenEval rows get a
+constant score of 0, since the detector-based GenEval scorer is not ported;
+evaluate GenEval offline.
 
 ## What to expect
 

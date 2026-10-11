@@ -6,8 +6,8 @@
 # (TaskBalancedSampler), and each row is routed to its task's frozen teacher by
 # the `data_source` column (the default `distillation.teacher_key`). The student
 # minimizes distill_kl toward the routed teacher's transition means; per-task
-# rewards (GenRM OCR, PickScore; PickScore stands in for GenEval) are monitored
-# only and never enter the loss.
+# rewards (GenRM OCR, PickScore) are monitored only and never enter the loss;
+# GenEval rows are not scored in-run.
 #
 # Operating point: deterministic 10-step sampling (noise_level=0, CFG 4.5,
 # 512px) with no SDE window, so every step but the last is distilled. The OCR
