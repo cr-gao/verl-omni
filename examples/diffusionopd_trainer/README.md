@@ -1,10 +1,12 @@
 # Diffusion On-Policy Distillation Trainer
 
-Last updated: 08/31/2026
+Last updated: 10/11/2026
 
 This example distills an OCR-tuned `SD3.5-Medium` teacher into a fresh `SD3.5-Medium` student. The student generates images with its own policy, a frozen teacher scores every denoising step of those trajectories, and the student minimizes the KL between its transition and the teacher's (`distill_kl`). The OCR reward is only monitored, never optimized — the reward curve shows the student reaching the teacher's reward level through distillation alone.
 
 Compared with running FlowGRPO again, distillation needs no reward in the loss and converges in far fewer steps. See the [algorithm doc](../../docs/algo/diffusion_opd.md) for the loss and all config knobs.
+
+Both recipes sample deterministically (`noise_level=0`, 10 steps, CFG 4.5, 512px) with no SDE window, so every step but the last is distilled; the student also trains with CFG 4.5.
 
 ## Installation
 

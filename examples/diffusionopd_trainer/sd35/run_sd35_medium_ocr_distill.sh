@@ -7,6 +7,9 @@
 # never enters the loss -- so the reward curve shows the student reaching the
 # teacher's reward level through distillation alone.
 #
+# Operating point: deterministic 10-step sampling (noise_level=0, CFG 4.5, 512px)
+# with no SDE window, so every step but the last is distilled.
+#
 # Set TEACHER_PATH to the merged teacher checkpoint. Data layout and the reward
 # model follow examples/flowgrpo_trainer/sd35/run_sd35_medium_ocr_lora.sh.
 set -x
@@ -26,7 +29,7 @@ NUM_GPUS_ACTOR_ROLLOUT=2
 NUM_GPUS_REWARD=1
 ROLLOUT_TP=1
 REWARD_TP=1
-IMAGE_RESOLUTION=384
+IMAGE_RESOLUTION=512
 TOTAL_TRAINING_STEPS=100
 ATTN_BACKEND=native
 
@@ -84,13 +87,11 @@ python3 -m verl_omni.trainer.main_diffusion_v1 \
     actor_rollout_ref.rollout.pipeline.height=$IMAGE_RESOLUTION \
     actor_rollout_ref.rollout.pipeline.width=$IMAGE_RESOLUTION \
     actor_rollout_ref.rollout.pipeline.num_inference_steps=10 \
-    actor_rollout_ref.rollout.pipeline.guidance_scale=1.0 \
+    actor_rollout_ref.rollout.pipeline.guidance_scale=4.5 \
     actor_rollout_ref.rollout.pipeline.max_sequence_length=256 \
     actor_rollout_ref.rollout.max_prompt_embed_length=333 \
-    actor_rollout_ref.rollout.algo.noise_level=0.8 \
+    actor_rollout_ref.rollout.algo.noise_level=0.0 \
     actor_rollout_ref.rollout.algo.sde_type="cps" \
-    actor_rollout_ref.rollout.algo.sde_window_size=3 \
-    actor_rollout_ref.rollout.algo.sde_window_range="[0,5]" \
     ++actor_rollout_ref.rollout.engine_kwargs.vllm_omni.max_num_seqs=${MAX_NUM_SEQS} \
     ++actor_rollout_ref.rollout.engine_kwargs.vllm_omni.request_batch_max_wait_ms=${REQUEST_BATCH_MAX_WAIT_MS} \
     actor_rollout_ref.rollout.val_kwargs.pipeline.num_inference_steps=28 \
