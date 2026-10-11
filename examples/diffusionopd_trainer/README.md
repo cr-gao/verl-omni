@@ -50,9 +50,38 @@ TEACHER_PATH=/path/to/merged-teacher \
   bash examples/diffusionopd_trainer/sd35/run_sd35_medium_ocr_distill.sh
 ```
 
-The multi-teacher recipe (`run_sd35_medium_mopd_distill.sh`) routes each row to
-its task's teacher by `data_source`. Both recipes run on the v1 trainer
-(`main_diffusion_v1`, `sync` mode).
+Both recipes run on the v1 trainer (`main_diffusion_v1`, `sync` mode).
+
+## Multi-teacher mixture
+
+`run_sd35_medium_mopd_distill.sh` distills the three task teachers of
+[quanhaol/DiffusionOPD](https://huggingface.co/quanhaol/DiffusionOPD) (OCR, Aes
+and GenEval LoRAs, merged into the base transformer in fp32) into one student on
+the OCR + PickScore + GenEval mixture. Prepare the two extra datasets from the
+Flow-GRPO splits:
+
+```bash
+python3 examples/flowgrpo_trainer/data_process/sd3_pickscore_sfw.py \
+  --input-dir $WORKSPACE/data/pickscore --output-dir $WORKSPACE/data/pickscore/sd3 \
+  --data-source flow_grpo/pickscore
+python3 examples/flowgrpo_trainer/data_process/sd3_geneval.py \
+  --input_dir $WORKSPACE/data/geneval --output_dir $WORKSPACE/data/geneval/sd3
+```
+
+```bash
+OCR_TEACHER_PATH=... AES_TEACHER_PATH=... GENEVAL_TEACHER_PATH=... \
+  bash examples/diffusionopd_trainer/sd35/run_sd35_medium_mopd_distill.sh
+```
+
+Each row is routed to its task's teacher by `data_source`; the OCR and Aes
+teachers run CFG 4.5 and the GenEval teacher CFG 1.0
+(`distillation.teacher_models.<name>.guidance_scale`). `TaskBalancedSampler`
+(`data.sampler`) gives every generation batch the same number of rows per task,
+and one optimizer step spans the whole batch, so an update matches feeding one
+single-task batch per teacher under gradient accumulation. Rewards are monitored
+only: GenRM OCR for OCR rows and PickScore for PickScore rows; GenEval rows also
+report PickScore as a stand-in, since the detector-based GenEval scorer is not
+ported.
 
 ## What to expect
 
