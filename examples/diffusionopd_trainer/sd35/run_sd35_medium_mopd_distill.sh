@@ -64,7 +64,7 @@ REWARD_ENGINE=vllm
 python3 -m verl_omni.trainer.main_diffusion_v1 \
     data.train_files="[\"$ocr_train_path\",\"$pickscore_train_path\",\"$geneval_train_path\"]" \
     data.val_files="[\"$ocr_test_path\",\"$pickscore_test_path\",\"$geneval_test_path\"]" \
-    data.train_batch_size=12 \
+    data.train_batch_size=96 \
     data.val_max_samples=96 \
     data.sampler.class_path=examples/diffusionopd_trainer/sd35/task_balanced_sampler.py \
     data.sampler.class_name=TaskBalancedSampler \
@@ -95,7 +95,7 @@ python3 -m verl_omni.trainer.main_diffusion_v1 \
     actor_rollout_ref.actor.kl_loss_coef=0.0 \
     actor_rollout_ref.actor.optim.lr=1e-4 \
     actor_rollout_ref.actor.optim.weight_decay=0.0001 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=12 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=96 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.actor.strategy=fsdp2 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
@@ -106,7 +106,7 @@ python3 -m verl_omni.trainer.main_diffusion_v1 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=$ROLLOUT_TP \
     actor_rollout_ref.rollout.name=$ENGINE \
-    actor_rollout_ref.rollout.n=8 \
+    actor_rollout_ref.rollout.n=1 \
     actor_rollout_ref.rollout.seed=42 \
     actor_rollout_ref.rollout.agent.num_workers=$((NUM_GPUS_ACTOR_ROLLOUT / ROLLOUT_TP)) \
     actor_rollout_ref.rollout.load_format=safetensors \
