@@ -146,6 +146,16 @@ multiple teachers must set it explicitly so the sum matches the pool size.
 Each teacher's sub-pool is its own worker group, so teachers are scored
 concurrently.
 
+### `distillation.teacher_models.<name>.guidance_scale` (float, optional)
+
+Classifier-free guidance scale of this teacher's forward. Default: `null`,
+which reuses the student's `actor_rollout_ref.rollout.pipeline.guidance_scale`.
+A teacher with `guidance_scale > 1` needs the negative prompt embeds, which
+the rollout only stores when the student itself samples with
+`pipeline.guidance_scale > 1`; startup raises otherwise. Teachers with
+`guidance_scale <= 1` run a single conditional forward whatever the student
+uses.
+
 ### `distillation.scheduler` (str)
 
 When the teachers score a batch. Default: `"inline"`, which runs the scoring
