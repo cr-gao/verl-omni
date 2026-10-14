@@ -1464,7 +1464,7 @@ class PolicyGradientRayTrainer(BaseRayDiffusionTrainer):
                     metrics.update(
                         compute_rollout_corr_metrics_from_batch(
                             batch,
-                            bypass_mode=bool(bypass_recomputing_logprobs) or self.skip_old_log_prob,
+                            bypass_mode=bool(bypass_recomputing_logprobs),
                         )
                     )
 

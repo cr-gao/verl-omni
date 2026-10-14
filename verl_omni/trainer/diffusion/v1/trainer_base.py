@@ -582,7 +582,7 @@ class PolicyGradientDiffusionTrainerV1(ABC):
         metrics.update(
             compute_rollout_corr_metrics_from_batch(
                 data,
-                bypass_mode=bypass_recomputing_logprobs or self.skip_old_log_prob,
+                bypass_mode=bypass_recomputing_logprobs,
             )
         )
 

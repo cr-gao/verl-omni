@@ -59,10 +59,12 @@ def track_nonfinite_grad_streak(streak: int, grad_norm: Optional[float]) -> int:
 
 
 def skip_old_log_prob(config) -> bool:
-    """Whether the actor update reads none of the recomputed old log-probs, so the stage can be skipped."""
+    """Whether the policy-gradient update reads none of the recomputed old log-probs, so the stage can be skipped."""
     from verl_omni.trainer.diffusion.diffusion_algos import get_diffusion_loss_fn
     from verl_omni.trainer.diffusion.rollout_correction import rollout_correction_enabled
 
+    if config.algorithm.get("trainer_type", "policy_gradient") != "policy_gradient":
+        return False
     loss_fn = get_diffusion_loss_fn(config.actor_rollout_ref.actor.diffusion_loss.get("loss_mode", "flow_grpo"))
     reads_log_probs = "log_probs" in loss_fn.required_model_output_keys or bool(
         {"old_log_probs", "old_prev_sample_mean"} & set(loss_fn.required_data_keys)

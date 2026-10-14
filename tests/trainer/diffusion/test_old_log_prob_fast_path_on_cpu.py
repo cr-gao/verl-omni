@@ -12,10 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 import torch
 from hydra import compose, initialize_config_dir
+from transfer_queue import KVBatchMeta
+from verl import DataProto
 from verl.utils import tensordict_utils as tu
 from verl.utils.config import omega_conf_to_dataclass
 
@@ -58,6 +62,17 @@ class TestSkipOldLogProb:
         )
         assert skip_old_log_prob(cfg) is True
 
+    @pytest.mark.parametrize("loss_mode", ["dgpo", "dmd2"])
+    def test_other_log_prob_free_losses_skip(self, loss_mode):
+        cfg = compose_cfg([f"actor_rollout_ref.actor.diffusion_loss.loss_mode={loss_mode}"])
+        assert skip_old_log_prob(cfg) is True
+
+    def test_direct_preference_never_sets_the_flag(self):
+        cfg = compose_cfg(
+            ["algorithm.trainer_type=direct_preference", "actor_rollout_ref.actor.diffusion_loss.loss_mode=dpo"]
+        )
+        assert skip_old_log_prob(cfg) is False
+
 
 def _actor_config(overrides):
     with initialize_config_dir(config_dir=os.path.join(CONFIG_DIR, "diffusion", "actor"), version_base=None):
@@ -90,3 +105,85 @@ class TestLossWithoutOldLogProbs:
     def test_log_prob_loss_names_the_missing_key(self):
         with pytest.raises(KeyError, match="old_log_probs"):
             diffusion_loss(_actor_config([]), *_step_inputs(False))
+
+
+DISTILL_OVERRIDES = [
+    "distillation.enabled=true",
+    "distillation.teacher_models.teacher_model.model_path=/ckpt/teacher",
+    "actor_rollout_ref.actor.diffusion_loss.loss_mode=distill_kl",
+    "actor_rollout_ref.actor.ppo_mini_batch_size=2",
+    "actor_rollout_ref.rollout.n=2",
+]
+
+
+def _make_v1_trainer(overrides):
+    from verl_omni.trainer.diffusion.v1.trainer_sync import PolicyGradientDiffusionTrainerV1Sync
+
+    return PolicyGradientDiffusionTrainerV1Sync(compose_cfg(overrides))
+
+
+class TestV1TrainerSkipBranch:
+    def test_dpo_trainer_does_not_set_the_flag(self):
+        trainer = _make_v1_trainer(
+            ["algorithm.trainer_type=direct_preference", "actor_rollout_ref.actor.diffusion_loss.loss_mode=dpo"]
+        )
+        assert trainer.skip_old_log_prob is False
+
+    def test_distill_kl_step_skips_the_recompute_and_updates(self, monkeypatch):
+        trainer = _make_v1_trainer(DISTILL_OVERRIDES)
+        assert trainer.skip_old_log_prob is True
+        trainer.tokenizer = SimpleNamespace(pad_token_id=0)
+        trainer.reward_loop_manager = SimpleNamespace(reward_loop_worker_handles=object())
+        trainer.global_steps = 1
+
+        def fail_infer(_batch):
+            raise AssertionError("distill_kl must not recompute old_log_probs")
+
+        trainer.actor_rollout_wg = SimpleNamespace(infer_actor_batch=fail_infer)
+        trainer.teacher_model_manager = SimpleNamespace(
+            compute_prev_sample_mean=lambda batch: DataProto.from_tensordict(
+                tu.get_tensordict({"teacher_prev_sample_mean": torch.zeros(len(batch), 2, 16, 3)})
+            )
+        )
+
+        data = DataProto.from_dict(
+            tensors={
+                "rm_scores": torch.tensor([[1.0], [0.0], [0.2], [0.8]]),
+                "all_timesteps": torch.zeros(4, 2, dtype=torch.long),
+                "latents": torch.zeros(4, 3, 16, 3),
+            },
+            non_tensors={"uid": np.array(["p0", "p0", "p1", "p1"], dtype=object)},
+        )
+        monkeypatch.setattr(
+            "verl_omni.trainer.diffusion.v1.trainer_base.diffusion_tq_batch_to_dataproto",
+            lambda meta, pad_token_id: data,
+        )
+        monkeypatch.setattr(
+            "verl_omni.trainer.diffusion.v1.trainer_base.extract_reward",
+            lambda batch: (batch.batch["rm_scores"], {}),
+        )
+        monkeypatch.setattr(
+            "verl_omni.trainer.diffusion.v1.trainer_base.put_dataproto_fields_to_tq",
+            lambda batch_meta, batch, fields: None,
+        )
+        captured = {}
+
+        def capture_update(batch):
+            captured["update"] = batch
+            return DataProto.from_single_dict(data={}, meta_info={"metrics": {"actor/distill_kl_loss": 0.1}})
+
+        monkeypatch.setattr(trainer, "_update_actor", capture_update)
+
+        batch_meta = KVBatchMeta(
+            partition_id="train",
+            keys=["p0_0_0", "p0_1_0", "p1_0_0", "p1_1_0"],
+            tags=[{"is_padding": False}] * 4,
+        )
+        metrics = {}
+        assert trainer._train_sampled_batch(metrics, {}, batch_meta) is batch_meta
+
+        updated = captured["update"].batch
+        assert "old_log_probs" not in updated
+        assert "teacher_prev_sample_mean" in updated
+        assert updated["advantages"].shape == (4, 2)
+        assert metrics["actor/distill_kl_loss"] == 0.1
