@@ -114,7 +114,9 @@ def _build_tiny_config(vocab_size: int):
     text.intermediate_size = 256
     text.num_attention_heads = 4
     text.num_key_value_heads = 2
-    text.head_dim = 32
+    # The real thinker's head size; with smaller ones the hub FlashAttention-3 kernel of the
+    # actor and vLLM's paged one disagree past 128 tokens, which breaks the true on-policy gate.
+    text.head_dim = 128
     text.num_experts = 4
     text.num_experts_per_tok = 2
     # With rollout TP=2, FlashInfer's SM100 MoE kernel requires the local
@@ -122,9 +124,9 @@ def _build_tiny_config(vocab_size: int):
     text.moe_intermediate_size = 256
     text.vocab_size = vocab_size
     # The default config leaves rope_scaling unset, but the M-RoPE rotary
-    # embedding requires it. mrope_section must sum to head_dim // 2 (= 16 here).
+    # embedding requires it. mrope_section must sum to head_dim // 2 (= 64 here).
     # Set rope_parameters directly (not rope_scaling) to avoid dropping rope_theta.
-    text.rope_parameters = {"rope_theta": 1000000.0, "rope_type": "default", "mrope_section": [8, 4, 4]}
+    text.rope_parameters = {"rope_theta": 1000000.0, "rope_type": "default", "mrope_section": [32, 16, 16]}
 
     vision = config.thinker_config.vision_config
     # Shrink dims but keep every field vLLM-Omni's vision tower reads (the default
@@ -208,7 +210,8 @@ def build(output_dir: str, *, seed: int = 42, dtype: torch.dtype = torch.bfloat1
     torch.manual_seed(seed)
 
     tokenizer = _build_tiny_chatml_tokenizer()
-    config = _build_tiny_config(vocab_size=len(tokenizer))
+    # A multiple of 64 keeps the lm_head GEMM on the same kernels in the actor and the rollout.
+    config = _build_tiny_config(vocab_size=-(-len(tokenizer) // 64) * 64)
 
     # Keep generation/special-token ids consistent between model and tokenizer.
     text = config.thinker_config.text_config

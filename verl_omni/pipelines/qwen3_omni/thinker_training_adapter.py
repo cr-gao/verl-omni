@@ -79,6 +79,16 @@ class Qwen3OmniThinkerAdapter(OmniModelBase):
         return qwen3_omni_forward_model_engine
 
     @classmethod
+    def register_true_on_policy_implementations(cls) -> dict[str, str]:
+        from .hub_fa3_attention import register_hub_fa3_attention
+        from .vllm_fused_moe_experts import register_vllm_fused_moe_experts
+
+        return {
+            "attn_implementation": register_hub_fa3_attention(),
+            "experts_implementation": register_vllm_fused_moe_experts(),
+        }
+
+    @classmethod
     def configure_model(cls, module, model_config):
         """Strip non-training stages and redirect forward to thinker.
 

@@ -132,3 +132,8 @@ class Qwen3OmniRolloutAdapter(OmniRolloutPipelineBase):
         if pipeline_mode == "thinker_only" and stage_id == 0:
             return {"model_arch": "Qwen3OmniMoeThinkerForConditionalGeneration"}
         return {}
+
+    @classmethod
+    def get_true_on_policy_engine_extras(cls, stage_id: int) -> dict:
+        """Run the thinker stage with HF numerics so its log-probs match the HF actor bitwise."""
+        return {"additional_config": {"hf_numerics": True}} if stage_id == 0 else {}

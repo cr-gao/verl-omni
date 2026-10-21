@@ -52,6 +52,9 @@ enable_activation_offload: False
 # whether to use remove padding
 use_remove_padding: True
 
+# Bitwise-equal actor and rollout log-probs (Qwen3-Omni thinker, fail-closed settings contract)
+true_on_policy: False
+
 # Set to positive value to enable LoRA (e.g., 32)
 lora_rank: 0
 

@@ -39,6 +39,7 @@ def _run_write_deploy_config(
         config_kwargs["text_encoder_tp_size"] = text_encoder_tp_size
     fake_self = types.SimpleNamespace(
         config=types.SimpleNamespace(**config_kwargs),
+        model_config=types.SimpleNamespace(true_on_policy=False),
     )
 
     class Adapter(OmniRolloutPipelineBase):
