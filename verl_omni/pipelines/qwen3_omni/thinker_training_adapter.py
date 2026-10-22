@@ -90,7 +90,7 @@ class Qwen3OmniThinkerAdapter(OmniModelBase):
 
     @classmethod
     def configure_model(cls, module, model_config):
-        """Strip non-training stages and redirect forward to thinker.
+        """Strip non-training stages, redirect forward to thinker, and give the true on-policy actor exact M-RoPE.
 
         Args:
             module: The loaded Qwen3-Omni model before FSDP wrapping.
@@ -105,6 +105,10 @@ class Qwen3OmniThinkerAdapter(OmniModelBase):
         module.get_input_embeddings = module.thinker.get_input_embeddings
         module.set_input_embeddings = module.thinker.set_input_embeddings
         module._no_split_modules = ["Qwen3OmniMoeThinkerTextDecoderLayer"]
+        if model_config.true_on_policy:
+            from .exact_mrope import ExactMRotaryEmbedding
+
+            module.thinker.model.rotary_emb = ExactMRotaryEmbedding.from_hf(module.thinker.model.rotary_emb)
         return module
 
     @classmethod
