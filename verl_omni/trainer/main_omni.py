@@ -263,13 +263,20 @@ class RayTrainerTaskRunner:
 
 
 def maybe_set_determinism_env(config) -> None:
-    """Propagate determinism env vars before ``ray.init()`` when configured."""
+    """Propagate determinism env vars before ``ray.init()`` when configured.
+
+    A batch-invariant actor also puts the rollout under ``VLLM_BATCH_INVARIANT=1``; unlike
+    ``rollout.full_determinism`` this leaves sampling seeds alone, so the ``n`` samples of a prompt differ.
+    """
     rollout_cfg = config.actor_rollout_ref.rollout
     rm_rollout_cfg = config.reward.reward_model.rollout
     if rollout_cfg.full_determinism or (config.reward.reward_model.enable and rm_rollout_cfg.full_determinism):
         os.environ["VERL_FULL_DETERMINISM"] = "1"
         os.environ["VLLM_BATCH_INVARIANT"] = "1"
         os.environ["PYTHONHASHSEED"] = str(rollout_cfg.seed)
+    actor_fsdp_cfg = config.actor_rollout_ref.actor.get("fsdp_config")
+    if actor_fsdp_cfg is not None and actor_fsdp_cfg.get("batch_invariant", False):
+        os.environ["VLLM_BATCH_INVARIANT"] = "1"
 
 
 def _resolve_ppo_runtime_env(config) -> dict[str, Any]:

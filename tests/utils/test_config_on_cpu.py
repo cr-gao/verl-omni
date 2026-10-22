@@ -179,7 +179,7 @@ def _true_on_policy_config(**overrides):
             "top_p": 1.0,
             "top_k": -1,
             "tensor_model_parallel_size": 1,
-            "full_determinism": True,
+            "full_determinism": False,
             "calculate_log_probs": True,
             "enforce_eager": False,
         },
@@ -194,6 +194,10 @@ def test_validate_config_accepts_true_on_policy_contract(bypass_mode):
     validate_config(_true_on_policy_config(**{"algorithm.rollout_correction.bypass_mode": bypass_mode}))
 
 
+def test_validate_config_does_not_require_rollout_full_determinism():
+    validate_config(_true_on_policy_config(**{"actor_rollout_ref.rollout.full_determinism": True}))
+
+
 @pytest.mark.parametrize(
     "path, value",
     [
@@ -201,7 +205,6 @@ def test_validate_config_accepts_true_on_policy_contract(bypass_mode):
         ("actor_rollout_ref.rollout.top_p", 0.9),
         ("actor_rollout_ref.rollout.top_k", 20),
         ("actor_rollout_ref.rollout.tensor_model_parallel_size", 2),
-        ("actor_rollout_ref.rollout.full_determinism", False),
         ("actor_rollout_ref.rollout.calculate_log_probs", False),
         ("actor_rollout_ref.model.lora_rank", 32),
         ("actor_rollout_ref.model.use_remove_padding", False),

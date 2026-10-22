@@ -97,7 +97,6 @@ _TRUE_ON_POLICY_CONTRACT = {
     "actor_rollout_ref.rollout.top_p": 1.0,
     "actor_rollout_ref.rollout.top_k": -1,
     "actor_rollout_ref.rollout.tensor_model_parallel_size": 1,
-    "actor_rollout_ref.rollout.full_determinism": True,
     "actor_rollout_ref.rollout.calculate_log_probs": True,
     "actor_rollout_ref.model.lora_rank": 0,
     "actor_rollout_ref.model.use_remove_padding": True,

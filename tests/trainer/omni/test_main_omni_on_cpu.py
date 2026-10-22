@@ -13,6 +13,7 @@
 # limitations under the License.
 """CPU tests for omni training entrypoint routing."""
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -20,7 +21,12 @@ import pytest
 from omegaconf import OmegaConf
 
 from verl_omni.trainer.diffusion.ray_diffusion_trainer import DirectPreferenceRayTrainer, PolicyGradientRayTrainer
-from verl_omni.trainer.main_omni import RayTrainerTaskRunner, get_ray_trainer_cls, uses_v1_trainer
+from verl_omni.trainer.main_omni import (
+    RayTrainerTaskRunner,
+    get_ray_trainer_cls,
+    maybe_set_determinism_env,
+    uses_v1_trainer,
+)
 from verl_omni.trainer.omni.ray_omni_trainer import OmniDirectPreferenceRayTrainer
 
 
@@ -206,3 +212,21 @@ class TestRayMasterPortRangeSchema:
                 overrides=["trainer.ray_master_port_range=[21000,22000]"],
             )
         assert list(cfg.trainer.ray_master_port_range) == [21000, 22000]
+
+
+@pytest.mark.parametrize("batch_invariant", [True, False])
+def test_batch_invariant_actor_exports_rollout_env_without_full_determinism(monkeypatch, batch_invariant):
+    for name in ("VLLM_BATCH_INVARIANT", "VERL_FULL_DETERMINISM", "PYTHONHASHSEED"):
+        monkeypatch.delenv(name, raising=False)
+    config = OmegaConf.create(
+        {
+            "actor_rollout_ref": {
+                "actor": {"fsdp_config": {"batch_invariant": batch_invariant}},
+                "rollout": {"full_determinism": False, "seed": 0},
+            },
+            "reward": {"reward_model": {"enable": False, "rollout": {"full_determinism": False}}},
+        }
+    )
+    maybe_set_determinism_env(config)
+    assert os.environ.get("VLLM_BATCH_INVARIANT") == ("1" if batch_invariant else None)
+    assert "VERL_FULL_DETERMINISM" not in os.environ
