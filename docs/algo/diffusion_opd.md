@@ -149,8 +149,9 @@ concurrently.
 ### `distillation.teacher_models.<name>.guidance_scale` (float, optional)
 
 Classifier-free guidance scale of this teacher's forward. Default: `null`,
-which reuses the student's `actor_rollout_ref.rollout.pipeline.guidance_scale`.
-A teacher with `guidance_scale > 1` needs the negative prompt embeds, which
+which inherits the student's `actor_rollout_ref.model.pipeline.guidance_scale`
+(by default the rollout's `pipeline.guidance_scale`). A teacher whose
+effective `guidance_scale > 1` needs the negative prompt embeds, which
 the rollout only stores when the student itself samples with
 `pipeline.guidance_scale > 1`; startup raises otherwise. Teachers with
 `guidance_scale <= 1` run a single conditional forward whatever the student

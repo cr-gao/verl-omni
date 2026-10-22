@@ -25,7 +25,8 @@ class TaskBalancedSampler(Sampler[int]):
 
     One optimizer step over such a batch matches feeding one single-task batch per
     teacher under gradient accumulation. Every task is reshuffled each epoch, and
-    shorter tasks are cycled so an epoch walks the largest task once.
+    shorter tasks are cycled so an epoch covers every row of the largest task,
+    whose own last batch is topped up the same way.
 
     Args:
         data_source: ``RLHFDataset`` whose ``dataframe`` has a ``data_source`` column.
@@ -46,7 +47,12 @@ class TaskBalancedSampler(Sampler[int]):
                 f"{sorted(self.task_indices)}."
             )
         self.rows_per_task = batch_size // len(self.task_indices)
-        self.num_batches = max(len(rows) for rows in self.task_indices.values()) // self.rows_per_task
+        largest_task = max(len(rows) for rows in self.task_indices.values())
+        if largest_task < self.rows_per_task:
+            raise ValueError(
+                f"Every task has fewer rows than the {self.rows_per_task} rows per task a generation batch needs."
+            )
+        self.num_batches = -(-largest_task // self.rows_per_task)
         self.seed = int(data_config.get("seed", 0) if seed is None else seed)
         self.epoch = 0
 

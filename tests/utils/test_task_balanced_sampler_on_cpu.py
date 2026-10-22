@@ -63,6 +63,22 @@ def test_largest_task_is_visited_once_and_short_tasks_cycle():
     assert Counter(a_rows) == {0: 3, 1: 3, 2: 3, 3: 3}
 
 
+def test_largest_task_remainder_fills_a_last_batch():
+    dataset = _dataset({"a": 4, "b": 7})
+    sampler = TaskBalancedSampler(dataset, OmegaConf.create({"train_batch_size": 4, "seed": 0}))
+    order = list(sampler)
+
+    assert len(order) == len(sampler) == 4 * 4
+    b_rows = [i for i in order if dataset.dataframe["data_source"][i] == "b"]
+    assert set(b_rows) == set(range(4, 11))
+    assert len(b_rows) == 8
+
+
+def test_largest_task_smaller_than_rows_per_task_raises():
+    with pytest.raises(ValueError, match="rows per task"):
+        TaskBalancedSampler(_dataset({"a": 1, "b": 1}), OmegaConf.create({"train_batch_size": 4}))
+
+
 def test_gen_batch_size_takes_precedence_and_epochs_reshuffle():
     dataset = _dataset({"a": 30, "b": 30})
     sampler = TaskBalancedSampler(dataset, OmegaConf.create({"train_batch_size": 7, "gen_batch_size": 10, "seed": 1}))

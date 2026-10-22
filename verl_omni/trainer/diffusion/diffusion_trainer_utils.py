@@ -89,12 +89,16 @@ def validate_distillation_config(config) -> None:
         )
     if enabled:
         student_guidance_scale = config.actor_rollout_ref.rollout.pipeline.get("guidance_scale") or 0.0
+        inherited_guidance_scale = config.actor_rollout_ref.model.pipeline.get("guidance_scale") or 0.0
         for name, teacher in config.distillation.teacher_models.items():
             teacher_guidance_scale = teacher.get("guidance_scale")
-            if teacher_guidance_scale is not None and teacher_guidance_scale > 1.0 and student_guidance_scale <= 1.0:
+            if teacher_guidance_scale is None:
+                teacher_guidance_scale = inherited_guidance_scale
+            if teacher_guidance_scale > 1.0 and student_guidance_scale <= 1.0:
                 raise ValueError(
-                    f"distillation.teacher_models.{name}.guidance_scale={teacher_guidance_scale} needs negative "
-                    "prompt embeds, which the rollout only produces with "
+                    f"distillation.teacher_models.{name} runs with guidance_scale={teacher_guidance_scale} (its own "
+                    "value or the inherited actor_rollout_ref.model.pipeline.guidance_scale), which needs negative "
+                    "prompt embeds that the rollout only produces with "
                     "actor_rollout_ref.rollout.pipeline.guidance_scale > 1."
                 )
     if enabled and actor.use_distill_loss and actor.distill_loss_mode != "distill_kl":
