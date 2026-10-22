@@ -3,15 +3,15 @@
 #
 # Phase 1: 2 steps with actor_rollout_ref.model.true_on_policy=True; rollout and recomputed
 # actor log-probs must be bitwise equal at both steps (the second after a real update and
-# weight sync), and the update must be nonzero.
+# weight sync), the update forward must reproduce the recomputed log-probs token for token
+# (actor/old_logprobs_mismatch_count), and the update must be finite and nonzero.
 # Phase 2: 1 step with algorithm.rollout_correction.bypass_mode=true, which reuses the rollout
 # log-probs as the old policy instead of recomputing them. The update forward must then match
-# them bitwise as well: ppo_kl is exactly 0 with a nonzero update. grad_norm is not compared
-# across runs: the backward is not bitwise reproducible from one run to the next.
+# the rollout log-probs token for token. Sampling is not seeded, so the two runs see different
+# batches and grad_norm is not compared across them.
 #
-# REINFORCE++ instead of GRPO: under full determinism the n samples of a prompt are identical
-# and GRPO advantages collapse to zero. ppo_micro_batch_size_per_gpu equals the per-GPU batch,
-# so there is no gradient accumulation.
+# GSPO with GRPO advantages, as the true on-policy recipe. ppo_micro_batch_size_per_gpu equals
+# the per-GPU batch, so there is no gradient accumulation.
 #
 # Requires: verl, verl-omni, vllm-omni installed; Hopper GPUs (the rollout picks FlashAttention-3,
 # which the actor matches through the hub kernel).
@@ -64,6 +64,11 @@ run_train() {
         actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
         actor_rollout_ref.actor.use_dynamic_bsz=False \
         actor_rollout_ref.actor.use_kl_loss=false \
+        actor_rollout_ref.actor.policy_loss.loss_mode=gspo \
+        actor_rollout_ref.actor.clip_ratio_low=3e-4 \
+        actor_rollout_ref.actor.clip_ratio_high=4e-4 \
+        actor_rollout_ref.actor.clip_ratio_c=10.0 \
+        actor_rollout_ref.actor.loss_agg_mode=seq-mean-token-mean \
         actor_rollout_ref.actor.fsdp_config.batch_invariant=True \
         actor_rollout_ref.rollout.name=vllm_omni \
         actor_rollout_ref.rollout.n=2 \
@@ -71,8 +76,6 @@ run_train() {
         actor_rollout_ref.rollout.top_p=1.0 \
         actor_rollout_ref.rollout.top_k=-1 \
         actor_rollout_ref.rollout.calculate_log_probs=True \
-        actor_rollout_ref.rollout.full_determinism=True \
-        actor_rollout_ref.rollout.seed=42 \
         actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
         actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
         actor_rollout_ref.rollout.max_num_seqs=8 \
@@ -82,7 +85,7 @@ run_train() {
         actor_rollout_ref.rollout.enable_prefix_caching=False \
         +actor_rollout_ref.rollout.engine_kwargs.vllm_omni.output_mode="ar" \
         +actor_rollout_ref.rollout.engine_kwargs.vllm_omni.pipeline_name="qwen3_omni_moe" \
-        algorithm.adv_estimator=reinforce_plus_plus \
+        algorithm.adv_estimator=grpo \
         algorithm.use_kl_in_reward=False \
         reward.reward_manager.source=register \
         reward.reward_manager.name=naive \
@@ -107,6 +110,7 @@ run_train bypass trainer.total_training_steps=1 algorithm.rollout_correction.byp
 
 python3 - "${OUTPUT_DIR}/recompute.jsonl" "${OUTPUT_DIR}/bypass.jsonl" <<'PY'
 import json
+import math
 import sys
 
 
@@ -119,11 +123,12 @@ recompute, bypass = load(sys.argv[1]), load(sys.argv[2])
 for step in (1, 2):
     metrics = recompute[step]
     assert metrics["training/rollout_logprobs_mismatch_count"] == 0, (step, metrics)
-    assert metrics["actor/grad_norm"] > 0, (step, metrics["actor/grad_norm"])
-assert bypass[1]["actor/ppo_kl"] == 0.0, bypass[1]["actor/ppo_kl"]
-assert bypass[1]["actor/grad_norm"] > 0, bypass[1]["actor/grad_norm"]
+    assert metrics["actor/old_logprobs_mismatch_count"] == 0, (step, metrics)
+    assert math.isfinite(metrics["actor/grad_norm"]) and metrics["actor/grad_norm"] > 0, (step, metrics["actor/grad_norm"])
+assert bypass[1]["actor/old_logprobs_mismatch_count"] == 0, bypass[1]
+assert math.isfinite(bypass[1]["actor/grad_norm"]) and bypass[1]["actor/grad_norm"] > 0, bypass[1]["actor/grad_norm"]
 print("mismatch_count:", [recompute[step]["training/rollout_logprobs_mismatch_count"] for step in (1, 2)])
-print("bypass ppo_kl:", bypass[1]["actor/ppo_kl"])
+print("update-forward mismatch_count recompute/bypass:", [recompute[step]["actor/old_logprobs_mismatch_count"] for step in (1, 2)], bypass[1]["actor/old_logprobs_mismatch_count"])
 print("grad_norm recompute/bypass:", recompute[1]["actor/grad_norm"], bypass[1]["actor/grad_norm"])
 PY
 

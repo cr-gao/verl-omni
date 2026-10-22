@@ -88,7 +88,7 @@ The rollout pays for the HF-order RMSNorm and rotary ops, which are unfused; the
 bash tests/special_e2e/run_qwen3_omni_true_on_policy_gate.sh
 ```
 
-Runs a tiny random Qwen3-Omni thinker on 2 GPUs. It checks `training/rollout_logprobs_mismatch_count == 0` at steps 1 and 2 with a nonzero `actor/grad_norm`, then reruns step 1 with `bypass_mode=true` and checks that `actor/ppo_kl` is exactly 0, i.e. the update forward matches the rollout log-probs used as the old policy.
+Runs a tiny random Qwen3-Omni thinker on 2 GPUs. It checks `training/rollout_logprobs_mismatch_count == 0` at steps 1 and 2 with a nonzero `actor/grad_norm`, and `actor/old_logprobs_mismatch_count == 0` (the update forward reproduces the recomputed log-probs token for token) with a finite, nonzero `actor/grad_norm`; then reruns step 1 with `bypass_mode=true`, where the same count compares the update forward with the rollout log-probs used as the old policy.
 
 CPU tests:
 
