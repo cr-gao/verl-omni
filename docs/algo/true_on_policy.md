@@ -45,6 +45,7 @@ The trainer refuses to start unless all of these hold, and lists every violation
 | `actor_rollout_ref.model.use_remove_padding` | `true` |
 | `actor_rollout_ref.actor.strategy` | `fsdp` or `fsdp2` |
 | `actor_rollout_ref.actor.fsdp_config.batch_invariant` | `true` |
+| `actor_rollout_ref.actor.fsdp_config.ulysses_sequence_parallel_size` | `1` |
 
 `actor_rollout_ref.model.override_config.attn_implementation` may be left unset or set to `hub_fa3`, and `override_config.experts_implementation` unset or set to `vllm_fused_moe`; anything else is an error. CUDA graphs on the rollout (`enforce_eager=false`) are supported.
 

@@ -173,7 +173,7 @@ def _true_on_policy_config(**overrides):
     config.algorithm = {"rollout_correction": {"bypass_mode": False}}
     config.actor_rollout_ref = {
         "model": {"true_on_policy": True, "lora_rank": 0, "use_remove_padding": True},
-        "actor": {"strategy": "fsdp2", "fsdp_config": {"batch_invariant": True}},
+        "actor": {"strategy": "fsdp2", "fsdp_config": {"batch_invariant": True, "ulysses_sequence_parallel_size": 1}},
         "rollout": {
             "temperature": 1.0,
             "top_p": 1.0,
@@ -209,6 +209,7 @@ def test_validate_config_does_not_require_rollout_full_determinism():
         ("actor_rollout_ref.model.lora_rank", 32),
         ("actor_rollout_ref.model.use_remove_padding", False),
         ("actor_rollout_ref.actor.fsdp_config.batch_invariant", False),
+        ("actor_rollout_ref.actor.fsdp_config.ulysses_sequence_parallel_size", 2),
         ("actor_rollout_ref.actor.strategy", "megatron"),
     ],
 )

@@ -101,6 +101,7 @@ _TRUE_ON_POLICY_CONTRACT = {
     "actor_rollout_ref.model.lora_rank": 0,
     "actor_rollout_ref.model.use_remove_padding": True,
     "actor_rollout_ref.actor.fsdp_config.batch_invariant": True,
+    "actor_rollout_ref.actor.fsdp_config.ulysses_sequence_parallel_size": 1,
 }
 
 
